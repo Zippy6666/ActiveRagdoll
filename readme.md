@@ -1,1 +1,1 @@
-A tool that lets you spawn NPCs around yourself.
+Active ragdolls for Gmod.
