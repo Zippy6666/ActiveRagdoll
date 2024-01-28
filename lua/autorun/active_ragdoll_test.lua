@@ -11,7 +11,6 @@ local activeRagAllNPCs = CreateConVar("active_ragdoll_all_npcs", "0", bit.bor(FC
 local activeRagCoolDown = CreateConVar("active_ragdoll_cooldown", "3", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagBurn = CreateConVar("active_ragdoll_always_on_burn", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagTakePhysDMG = CreateConVar("active_ragdoll_phys_dmg", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
-
 local REAGDOLL_INSTALLED = file.Exists("autorun/client/reagdoll_menu.lua", "LUA")
 
 --------------------------------------------------------------------------------------------=#
@@ -486,8 +485,6 @@ if SERVER then
             return true
 
         end
-
-        -- print(infl or "none", attacker or "none")
     end)
     --------------------------------------------------------------------------------------------=#
     hook.Add("OnEntityCreated", "AddActiveRagdollFuncs", function( ent )
