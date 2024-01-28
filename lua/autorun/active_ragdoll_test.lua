@@ -13,9 +13,11 @@ local activeRagBurn = CreateConVar("active_ragdoll_always_on_burn", "1", bit.bor
 local activeRagTakePhysDMG = CreateConVar("active_ragdoll_phys_dmg", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local REAGDOLL_INSTALLED = file.Exists("autorun/client/reagdoll_menu.lua", "LUA")
 
---------------------------------------------------------------------------------------------=#
+
+
 if CLIENT then
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("PopulateToolMenu", "ZippyActiveRagdoll", function() spawnmenu.AddToolMenuOption("Options", "Ragdolls", "Active Ragdoll", "Active Ragdoll", "", "", function(panel)
 
         panel:CheckBox("Enable", "active_ragdoll_enabled")
@@ -62,12 +64,14 @@ if CLIENT then
         panel:NumSlider("Drop Weapon Chance", "active_ragdoll_drop_weapon_chance", 1, 20, 0)
         panel:Help("1/X Chance that the target drops their active weapon when ragdolled.")
     end) end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
 end
---------------------------------------------------------------------------------------------=#
+
+
 if SERVER then
     local NPCS_IN_RAGDOLL_STATE = {}
-    ----------------------------------------------------------------------------------=#
+
     local function ActiveRagdollThink( self )
 
         if !IsValid(self.ActiveRagdoll) then return end -- Prevent error
@@ -103,7 +107,8 @@ if SERVER then
             self:StopActiveRagdoll()
         end
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function PostActiveRagdoll_SetPos( self )
         local tr = util.TraceLine({
             start = self:GetPos() + Vector(0, 0, 150),
@@ -112,7 +117,8 @@ if SERVER then
         })
         self:SetPos(tr.HitPos+tr.HitNormal*( -self:OBBMins().z + 5 ) )
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function createRagFromEnt( ent )
 
         -- Copy a ragdoll version of the ent
@@ -182,7 +188,8 @@ if SERVER then
 
         self.TimeUntilActiveRagdoll = CurTime()+activeRagCoolDown:GetInt()
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function ragAnimateToEnt(rag, ent, duration)
         if activeRagRise:GetBool() then
             local anm = ents.Create("zippy_ragdoll_animation")
@@ -241,7 +248,8 @@ if SERVER then
             end)
         end
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function BecomeActiveRagdoll( self, duration )
 
         if !self:GetShouldServerRagdoll() then return end
@@ -334,7 +342,8 @@ if SERVER then
         self.ActiveRag_StandDelay = CurTime()
 
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function StopActiveRagdoll( self )
 
         if self.IsInActiveRagdollAnimationState then return end
@@ -351,12 +360,14 @@ if SERVER then
         ragAnimateToEnt(self.ActiveRagdoll, self, animDur)
 
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function canActiveRagdoll( ent )
         if ent.GetHullType && ent:GetHullType() != HULL_HUMAN && !activeRagAllNPCs:GetBool() then return false end
         return ent.BecomeActiveRagdoll or false
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function ragWasHurtVital( rag, dmgpos )
         local bone
         local mindist
@@ -382,7 +393,8 @@ if SERVER then
 
         return hitGr or false
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function vjAllyCheck( ent, attacker, infl )
 
         if !ent.IsVJBaseSNPC then return true end
@@ -398,7 +410,8 @@ if SERVER then
         return true
 
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("EntityTakeDamage", "EntityTakeDamage_ActiveRagdoll", function( ent, dmg )
 
         local becameRagdoll = false
@@ -486,7 +499,8 @@ if SERVER then
 
         end
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("OnEntityCreated", "AddActiveRagdollFuncs", function( ent )
         -- Init
         if enabled:GetBool() && ent:IsNPC() then
@@ -498,7 +512,8 @@ if SERVER then
             ent.TimeUntilActiveRagdoll = CurTime()
         end
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local nextThink = CurTime()
     hook.Add("Think", "ActiveRagdollThink", function()
 
@@ -519,7 +534,8 @@ if SERVER then
         nextThink = CurTime() + 0.1
 
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("CreateEntityRagdoll", "CreateEntityRagdoll_ActiveRagdoll", function( ent, rag )
 
         -- Give death ragdoll same attributes as active ragdoll
@@ -559,7 +575,8 @@ if SERVER then
         end
 
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
     local function saveActiveRagData( npc )
         if IsValid(npc.ActiveRagdoll) then
 
@@ -584,7 +601,8 @@ if SERVER then
 
         end
     end
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("InitPostEntity", "ActiveRagdoll_InitPostEntity", function()
 
         -- Automatic compatability with reagdoll
@@ -604,7 +622,8 @@ if SERVER then
         end) end)
 
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
     hook.Add("EntityRemoved", "EntityRemoved_ActiveRagdoll", function( ent )
 
         saveActiveRagData( ent )
@@ -614,6 +633,7 @@ if SERVER then
         end
 
     end)
-    --------------------------------------------------------------------------------------------=#
+    
+    
 end
---------------------------------------------------------------------------------------------=#
+
