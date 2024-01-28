@@ -72,19 +72,38 @@ end
 if SERVER then
     local NPCS_IN_RAGDOLL_STATE = {}
 
+
+    local function ActiveRagdoll_MoveThink( self )
+        -- I dunno y it no work lol
+        local physcount = self:GetPhysicsObjectCount()
+
+        for i = 0, physcount - 1 do
+
+            local phys = self:GetPhysicsObjectNum(i)
+            if IsValid(phys) then
+                -- phys:ApplyForceCenter(Vector(0, 0, 1000))
+            end
+
+        end
+    end
+
+
     local function ActiveRagdollThink( self )
 
         if !IsValid(self.ActiveRagdoll) then return end -- Prevent error
+
 
         -- Position on ragdoll
         if !self.IsInActiveRagdollAnimationState then
             self:SetPos( self.ActiveRagdoll:GetPos() - self.PreActiveRagData._OBBCenter )
         end
 
+
         -- Save all enemies
         if IsValid(self:GetEnemy()) then
             table.insert( self.PreActiveRagData.enemies, self:GetEnemy() )
         end
+
 
         -- Become friendly towards enemies for now
         for _, v in ipairs(self.PreActiveRagData.enemies) do
@@ -92,21 +111,32 @@ if SERVER then
             self:AddEntityRelationship( v, D_LI, 99 )
         end
 
+
         -- Weapon was stripped, remove the fake model too then
         if !IsValid(self:GetActiveWeapon()) && IsValid(self.ActiveRagdoll.ActiveRagdoll_WeaponProp) then
             self.ActiveRagdoll.ActiveRagdoll_WeaponProp:Remove()
         end
+
 
         -- In air or moving fast, delay time until rise
         if self.ActiveRagdoll:GetVelocity():LengthSqr() > 10000 then
             self.ActiveRag_StandDelay = CurTime()+1.5
         end
 
+
         -- Rise again
         if self.Time_StopActiveRagdoll < CurTime() && self.ActiveRag_StandDelay < CurTime() then
             self:StopActiveRagdoll()
         end
+
+
+        -- Shittier movement system when reagdoll is not installed
+        if !REAGDOLL_INSTALLED then
+            self:ActiveRagdoll_MoveThink()
+        end
+
     end
+
     
     
     local function PostActiveRagdoll_SetPos( self )
@@ -509,6 +539,7 @@ if SERVER then
             ent.PostActiveRagdoll_SetPos = PostActiveRagdoll_SetPos
             ent.DelayActiveRagNormalTimer = DelayActiveRagNormalTimer
             ent.StopActiveRagdoll = StopActiveRagdoll
+            ent.ActiveRagdoll_MoveThink = ActiveRagdoll_MoveThink
             ent.TimeUntilActiveRagdoll = CurTime()
         end
     end)
