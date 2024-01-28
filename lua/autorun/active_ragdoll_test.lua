@@ -1,4 +1,5 @@
 local enabled = CreateConVar("active_ragdoll_enabled", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeRagRise = CreateConVar("active_ragdoll_rise_animation", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagChance = CreateConVar("active_ragdoll_chance", "2", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDMGPercent = CreateConVar("active_ragdoll_dmg_hp_percent", "0.1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDropWepChance = CreateConVar("active_ragdoll_drop_weapon_chance", "5", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
@@ -20,6 +21,9 @@ if CLIENT then
 
         panel:CheckBox("Enable", "active_ragdoll_enabled")
         panel:Help("Enable addon.")
+
+        panel:CheckBox("Rise Animation", "active_ragdoll_rise_animation")
+        panel:Help("Enable rise animations when npc getting up.\nWARNING: Its not working with all models properly.")
 
         panel:CheckBox("Drop Weapons", "active_ragdoll_drop_weapon")
         panel:Help("Enable weapon dropping.")
@@ -145,35 +149,98 @@ if SERVER then
         return rag
 
     end
+
+    local function ragToNPCMake(self)
+        if !IsValid(self) then return end
+    
+        table.RemoveByValue(NPCS_IN_RAGDOLL_STATE, self)
+
+        self.IsInActiveRagdollState = false
+        self.IsInActiveRagdollAnimationState = false
+        self:SetNWBool("ActiveRagdoll", false)
+
+        -- Start hating enemies again
+        for _, v in ipairs(self.PreActiveRagData.enemies) do
+            if !IsValid(v) then continue end
+            self:AddEntityRelationship(v, D_HT, 99)
+        end
+
+        if self.IsVJBaseSNPC then
+            self.IsAbleToShootWeapon = self.PreActiveRagData.vjCanShootFunc
+            self.vACT_StopAttacks = false
+        end
+
+        self:SetNoDraw(false)
+        self:SetRenderMode(self.PreActiveRagData.renderMode)
+        self:SetColor(self.PreActiveRagData.col)
+
+        if IsValid(self:GetActiveWeapon()) then
+            self:GetActiveWeapon():SetNoDraw(false)
+        end
+
+        self.ActiveRagdoll:Remove()
+        self.ActiveRagdoll = nil
+
+        self.TimeUntilActiveRagdoll = CurTime()+activeRagCoolDown:GetInt()
+    end
     --------------------------------------------------------------------------------------------=#
-    local function ragAnimateToEnt( rag, ent, duration )
+    local function ragAnimateToEnt(rag, ent, duration)
+        if activeRagRise:GetBool() then
+            local anm = ents.Create("zippy_ragdoll_animation")
+            anm:SetPos(ent:GetPos())
+            anm:SetAngles(ent:GetAngles())
+            anm:Spawn()
+            anm.Ragdoll = rag
+            anm.Entity = ent.ActiveRagdoll.ActiveRagdollOwner
+            anm:ResetSequence("rise"..math.random(1,9))
+            anm.FinishFunc = function()
+                local name = "RagAnimateTo"..ent:EntIndex()
+                local endT = CurTime()+duration+0.4
+                hook.Add("Think", name, function()
+                    if !IsValid(ent) or !IsValid(rag) or CurTime() > endT then
+                        hook.Remove("Think", name)
+                        ragToNPCMake(ent)
+                        return
+                    end
 
-        local name = "RagAnimateTo"..ent:EntIndex()
-        local endT = CurTime()+duration
+                    local physcount = rag:GetPhysicsObjectCount()
+                    for i = 0, physcount - 1 do
 
-        hook.Add("Think", name, function()
+                        local physObj = rag:GetPhysicsObjectNum(i)
+                        local idealPos, idealAng = ent:GetBonePosition(ent:TranslatePhysBoneToBone(i))
 
-            if !IsValid(ent) or !IsValid(rag) or CurTime() > endT then
-                hook.Remove("Think", name)
-                return
+                        local pos, ang = LerpVector(0.05, physObj:GetPos(), idealPos), LerpAngle(0.05, physObj:GetAngles(), idealAng)
+
+                        physObj:SetPos( pos )
+                        physObj:SetAngles( ang )
+
+                    end
+                end)
             end
+        else
+            local name = "RagAnimateTo"..ent:EntIndex()
+            local endT = CurTime()+duration
+            hook.Add("Think", name, function()
+                if !IsValid(ent) or !IsValid(rag) or CurTime() > endT then
+                    hook.Remove("Think", name)
+                    ragToNPCMake(ent)
+                    return
+                end
 
-            -- Slowly animate ragdoll to the same position as its owner
-            local physcount = rag:GetPhysicsObjectCount()
-            for i = 0, physcount - 1 do
+                local physcount = rag:GetPhysicsObjectCount()
+                for i = 0, physcount - 1 do
 
-                local physObj = rag:GetPhysicsObjectNum(i)
-                local idealPos, idealAng = ent:GetBonePosition(ent:TranslatePhysBoneToBone(i))
+                    local physObj = rag:GetPhysicsObjectNum(i)
+                    local idealPos, idealAng = ent:GetBonePosition(ent:TranslatePhysBoneToBone(i))
 
-                local pos, ang = LerpVector(0.1, physObj:GetPos(), idealPos), LerpAngle(0.1, physObj:GetAngles(), idealAng)
+                    local pos, ang = LerpVector(0.1, physObj:GetPos(), idealPos), LerpAngle(0.1, physObj:GetAngles(), idealAng)
 
-                physObj:SetPos( pos )
-                physObj:SetAngles( ang )
+                    physObj:SetPos( pos )
+                    physObj:SetAngles( ang )
 
-            end
-            
-        end)
-
+                end
+            end)
+        end
     end
     --------------------------------------------------------------------------------------------=#
     local function BecomeActiveRagdoll( self, duration )
@@ -283,40 +350,6 @@ if SERVER then
         self.ActiveRagdoll:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
 
         ragAnimateToEnt(self.ActiveRagdoll, self, animDur)
-
-        timer.Simple(animDur, function()
-            if !IsValid(self) then return end
-    
-            table.RemoveByValue(NPCS_IN_RAGDOLL_STATE, self)
-
-            self.IsInActiveRagdollState = false
-            self.IsInActiveRagdollAnimationState = false
-            self:SetNWBool("ActiveRagdoll", false)
-
-            -- Start hating enemies again
-            for _, v in ipairs(self.PreActiveRagData.enemies) do
-                if !IsValid(v) then continue end
-                self:AddEntityRelationship(v, D_HT, 99)
-            end
-
-            if self.IsVJBaseSNPC then
-                self.IsAbleToShootWeapon = self.PreActiveRagData.vjCanShootFunc
-                self.vACT_StopAttacks = false
-            end
-
-            self:SetNoDraw(false)
-            self:SetRenderMode(self.PreActiveRagData.renderMode)
-            self:SetColor(self.PreActiveRagData.col)
-
-            if IsValid(self:GetActiveWeapon()) then
-                self:GetActiveWeapon():SetNoDraw(false)
-            end
-    
-            self.ActiveRagdoll:Remove()
-            self.ActiveRagdoll = nil
-
-            self.TimeUntilActiveRagdoll = CurTime()+activeRagCoolDown:GetInt()
-        end)
 
     end
     --------------------------------------------------------------------------------------------=#
