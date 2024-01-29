@@ -1,16 +1,20 @@
 local enabled = CreateConVar("active_ragdoll_enabled", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeReagdoll = CreateConVar("active_ragdoll_reagdoll", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagRise = CreateConVar("active_ragdoll_rise_animation", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagChance = CreateConVar("active_ragdoll_chance", "2", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDMGPercent = CreateConVar("active_ragdoll_dmg_hp_percent", "0.1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeRagDMGRag = CreateConVar("active_ragdoll_dmg_rag_scale", "0.5", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDropWepChance = CreateConVar("active_ragdoll_drop_weapon_chance", "5", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDropWep = CreateConVar("active_ragdoll_drop_weapon", "0", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagDurationMin = CreateConVar("active_ragdoll_duration_min", "2", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
-local activeRagDurationMax = CreateConVar("active_ragdoll_duration_max", "4", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeRagDurationMax = CreateConVar("active_ragdoll_duration_max", "10", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagExplosion = CreateConVar("active_ragdoll_always_on_explosion", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeRagCrush = CreateConVar("active_ragdoll_always_on_crush", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagAllNPCs = CreateConVar("active_ragdoll_all_npcs", "0", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagCoolDown = CreateConVar("active_ragdoll_cooldown", "3", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagBurn = CreateConVar("active_ragdoll_always_on_burn", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 local activeRagTakePhysDMG = CreateConVar("active_ragdoll_phys_dmg", "1", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
+local activeRagShoot = CreateConVar("active_ragdoll_shoot_chance", "10", bit.bor(FCVAR_ARCHIVE, FCVAR_REPLICATED))
 
 local REAGDOLL_INSTALLED = file.Exists("autorun/client/reagdoll_menu.lua", "LUA")
 
@@ -31,6 +35,9 @@ if CLIENT then
         panel:CheckBox("Explosions Ignore Chance", "active_ragdoll_always_on_explosion")
         panel:Help("The chance of ragdolling is always 100% on explosions.")
 
+        panel:CheckBox("Crush and Club Damage Ignore Chance", "active_ragdoll_always_on_crush")
+        panel:Help("The chance of ragdolling is always 100% on crush and club.")
+
         panel:CheckBox("Always On Burn", "active_ragdoll_always_on_burn")
         panel:Help("Always ragdoll when on fire.")
 
@@ -41,12 +48,15 @@ if CLIENT then
         panel:Help("Should ragdolls take damage from physics?")
     
         if REAGDOLL_INSTALLED then
-            panel:CheckBox("ReAgdoll Compatability", "reagdoll_ragdolls")
+            panel:CheckBox("ReAgdoll Compatability", "active_ragdoll_reagdoll")
             panel:Help("Enable compatability with ReAgdoll.")
         end
 
         panel:NumSlider("Damage Percent", "active_ragdoll_dmg_hp_percent", 0, 1, 2)
         panel:Help("How many percent of the target's HP has to be reduced in order for it to ragdoll?")
+
+        panel:NumSlider("Damage Scale", "active_ragdoll_dmg_rag_scale", 0, 2, 2)
+        panel:Help("How many scale of the damage for the target in ragdoll state?")
 
         panel:NumSlider("Chance", "active_ragdoll_chance", 1, 20, 0)
         panel:Help("1/X Chance that the target ragdolls.")
@@ -62,12 +72,38 @@ if CLIENT then
 
         panel:NumSlider("Drop Weapon Chance", "active_ragdoll_drop_weapon_chance", 1, 20, 0)
         panel:Help("1/X Chance that the target drops their active weapon when ragdolled.")
+
+        panel:NumSlider("Shooting Chance", "active_ragdoll_shoot_chance", 1, 20, 0)
+        panel:Help("1/X Chance that the target will shoot from the pistol when ragdolled. Beta feature.\n")
+
+        panel:ControlHelp("Credits:\nZippy - Base of addon\nHari - All updates in 2024 year\n")
     end) end)
     --------------------------------------------------------------------------------------------=#
 end
 --------------------------------------------------------------------------------------------=#
 if SERVER then
     local NPCS_IN_RAGDOLL_STATE = {}
+    
+    local function boneCheckHeight(ent, bone)
+        local boneid = ent:LookupBone(bone)
+        local pos = ent:GetBonePosition(boneid)
+        if !isvector(pos) then return 0 end
+
+        local tr = util.TraceLine({
+            start = pos,
+            endpos = pos - Vector(0, 0, 999999),
+            filter = function(tar)
+                if IsValid(ent.Weapon) and tar == ent.Weapon or ent == tar then
+                    return false 
+                else
+                    return true
+                end	
+            end,
+            mask = MASK_PLAYERSOLID,
+        })
+    
+        return (pos - tr.HitPos):Length()
+    end
     ----------------------------------------------------------------------------------=#
     local function ActiveRagdollThink( self )
 
@@ -99,6 +135,103 @@ if SERVER then
             self.ActiveRag_StandDelay = CurTime()+1.5
         end
 
+        if self.ActiveRagdoll.CanShooting then
+            local rag = self.ActiveRagdoll
+            local en, dist = nil, math.huge 
+            for _, ent in ipairs(ents.FindInSphere(self:GetPos(), 1024)) do
+                if !ent:IsPlayer() and !ent:IsNPC() and !ent:IsNextBot() then continue end
+                local tdist = ent:GetPos():DistToSqr(self:GetPos())
+                if self:IsLineOfSightClear(ent) and table.HasValue( self.PreActiveRagData.enemies, ent ) and tdist < dist then
+                    en = ent
+                    dist = tdist
+                end
+            end
+            if IsValid(en) then
+                local boner1 = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_R_Hand")))
+                local boner2 = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_R_Forearm")))
+                local boneh = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_Head1")))
+                local bones = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_Spine4")))
+                local ang = (en:WorldSpaceCenter()-rag:GetPos()+Vector(0,0,8)):GetNormalized():Angle()
+                if not del then
+                    del = 0
+                    RDReagdollMaster.Kill(rag, false)
+                end
+
+                local he = boneCheckHeight(rag, "ValveBiped.Bip01_Head1")
+                if he < 32 then
+                    local p = {}
+                    p.secondstoarrive = 0.01
+                    p.pos = boneh:GetPos() + ang:Forward()*64 + ang:Right()*4 + ang:Up()*8
+                    p.angle = ang+Angle(0,0,180)
+                    p.maxangular = 670
+                    p.maxangulardamp = 250
+                    p.maxspeed = 50
+                    p.maxspeeddamp = 45
+                    p.teleportdistance = 0
+                    p.deltatime = CurTime() - del
+
+                    boner1:Wake()
+                    boner1:ComputeShadowControl(p)
+                    boner2:Wake()
+                    boner2:ComputeShadowControl(p)
+                        
+                    local p = {}
+                    p.secondstoarrive = 0.5
+                    p.pos = boneh:GetPos() + (ang:Up()*(16-he))
+                    p.angle = ang
+                    p.maxangular = 400
+                    p.maxangulardamp = 100
+                    p.maxspeed = 200
+                    p.maxspeeddamp = 50
+                    p.teleportdistance = 0
+                    p.deltatime = CurTime() - del
+            
+                    boneh:Wake()
+                    boneh:ComputeShadowControl(p)
+
+                    p.secondstoarrive = 0.5
+                    p.pos = bones:GetPos()
+
+                    bones:Wake()
+                    bones:ComputeShadowControl(p)
+
+                    self.DeltaTimeShoot = CurTime()
+                else
+                    rag.ShootCooldown = CurTime()+math.Rand(0.4,1.2)
+                end
+
+                local del = self.DeltaTimeShoot
+                if rag.ShootCooldown < CurTime() then
+                    rag.ShootCooldown = CurTime()+math.Rand(0.5,1.5)
+                    rag:EmitSound(")weapons/pistol/pistol_fire3.wav", 80, math.random(80,120))
+                    if IsValid(rag.WeaponModel) then
+                        local att = rag.WeaponModel:GetAttachment(rag.WeaponModel:LookupAttachment('muzzle'))
+                        local effectdata = EffectData()
+                        effectdata:SetOrigin(att.Pos)
+                        effectdata:SetAngles(att.Ang)
+                        effectdata:SetScale( 1 )
+                        util.Effect("MuzzleEffect", effectdata)
+
+                        local data = {
+                            Attacker = self,
+                            Damage = math.random(10,20),
+                            Dir = ang:Forward(),
+                            Src = boner1:GetPos(),
+                            Force = 1,
+                            Tracer = 1,
+                            AmmoType = 1,
+                            Num = 1,
+                            Spread = Vector(0.01,0.01,0.01),
+                            IgnoreEntity = self.ActiveRagdoll,
+                        }
+                        self:FireBullets(data)
+                    end
+                end
+            else
+                rag.ShootCooldown = CurTime()+math.Rand(0.5,1)
+            end
+        end
+
         -- Rise again
         if self.Time_StopActiveRagdoll < CurTime() && self.ActiveRag_StandDelay < CurTime() then
             self:StopActiveRagdoll()
@@ -113,8 +246,9 @@ if SERVER then
         })
         self:SetPos(tr.HitPos+tr.HitNormal*( -self:OBBMins().z + 5 ) )
     end
+    print(1)
     --------------------------------------------------------------------------------------------=#
-    local function createRagFromEnt( ent )
+    local function createRagFromEnt( ent, tab )
 
         -- Copy a ragdoll version of the ent
         local rag = ents.Create("prop_ragdoll")
@@ -128,6 +262,40 @@ if SERVER then
             rag:SetBodygroup(v.id, ent:GetBodygroup( v.id ))
         end
         rag:Spawn()
+        rag.CanShooting = math.random(1, activeRagShoot:GetInt()) == 1
+        if !IsValid(ent:GetActiveWeapon()) then
+            rag.CanShooting = false
+        end
+        if activeReagdoll:GetBool() and REAGDOLL_INSTALLED then
+            RD_ragdollphysics(rag)
+            
+            if ent.ReAgdoll_DmgInfo == nil then
+                ent.ReAgdoll_DmgInfo = {
+                    "ammount",
+                    "position",
+                    "dmgtype",
+                    "force",
+                    "hitgroup",
+                    "dmginfo"
+                }
+                
+                ent.ReAgdoll_DmgInfo["ammount"] = 1
+                ent.ReAgdoll_DmgInfo["position"] = bone_pos
+                ent.ReAgdoll_DmgInfo["dmgtype"] = DMG_GENERIC
+                ent.ReAgdoll_DmgInfo["hitgroup"] = math.random(0,10) 
+                ent.ReAgdoll_DmgInfo["projectile"] = nil
+            end
+            
+            local dmg		= 	ent.ReAgdoll_DmgInfo["ammount"] or tab[1]
+            local dmgpos	= 	ent.ReAgdoll_DmgInfo["position"] or tab[2]
+            local dmgtype	= 	ent.ReAgdoll_DmgInfo["dmgtype"] or tab[3]
+            local hitgroup	=	ent.ReAgdoll_DmgInfo["hitgroup"] or 0
+        
+            rg_debuginfo(ent, dmg, dmgpos, dmgtype, hitgroup, "npc", rag)	
+            RD_onDeath(ent, rag, dmg, dmgpos, dmgtype, hitgroup)
+
+            RDbalance.Activate(rag, 3)
+        end
 
         local physcount = rag:GetPhysicsObjectCount()
         if physcount < 2 then
@@ -186,6 +354,10 @@ if SERVER then
     --------------------------------------------------------------------------------------------=#
     local function ragAnimateToEnt(rag, ent, duration)
         if activeRagRise:GetBool() then
+            rag.CanShooting = false
+            if REAGDOLL_INSTALLED then
+                RDReagdollMaster.Kill(rag,false)
+            end
             local anm = ents.Create("zippy_ragdoll_animation")
             anm:SetPos(ent:GetPos())
             anm:SetAngles(ent:GetAngles())
@@ -243,14 +415,14 @@ if SERVER then
         end
     end
     --------------------------------------------------------------------------------------------=#
-    local function BecomeActiveRagdoll( self, duration )
+    local function BecomeActiveRagdoll( self, duration, tab )
 
         if !self:GetShouldServerRagdoll() then return end
         if self.IsInActiveRagdollState then return end
         if self.TimeUntilActiveRagdoll > CurTime() then return end
 
         -- Create ragdoll
-        self.ActiveRagdoll = createRagFromEnt( self )
+        self.ActiveRagdoll = createRagFromEnt( self, tab )
         if !IsValid(self.ActiveRagdoll) then
             -- Couldn't create ragdoll
             return
@@ -303,7 +475,7 @@ if SERVER then
         end
 
         -- Weapon stuff:
-        if IsValid(self:GetActiveWeapon()) then
+        if IsValid(self:GetActiveWeapon()) and not self.ActiveRagdoll.CanShooting then
 
             self:GetActiveWeapon():SetNoDraw(true)
 
@@ -317,6 +489,28 @@ if SERVER then
                 wepProp:SetParent(self.ActiveRagdoll, att)
                 wepProp:AddEffects(EF_BONEMERGE)
                 self.ActiveRagdoll.ActiveRagdoll_WeaponProp = wepProp
+            end
+
+        elseif self.ActiveRagdoll.CanShooting then
+
+            self.ActiveRagdoll.ShootCooldown = CurTime()+math.Rand(1,2)
+
+            if IsValid(self:GetActiveWeapon()) then
+                self:GetActiveWeapon():SetNoDraw(true)
+            end
+
+            local att = self.ActiveRagdoll:LookupAttachment("anim_attachment_RH")
+            if att > 0 then
+                local tab = self.ActiveRagdoll:GetAttachment(att)
+                local bd = ents.Create("base_anim")
+                bd:SetModel("models/zippy/w_m18.mdl")
+                bd:SetParent(self.ActiveRagdoll, att)
+                bd:SetPos(tab.Pos)
+                bd:AddEffects(1)
+                bd:Spawn()
+                self.ActiveRagdoll.WeaponModel = bd
+            else
+                self.ActiveRagdoll.CanShooting = false
             end
 
         end
@@ -410,7 +604,7 @@ if SERVER then
         if canActiveRagdoll( ent ) && ent:IsOnFire() && activeRagBurn:GetBool() then
 
             local duration = math.Rand(8, 12)
-            ent:BecomeActiveRagdoll(duration)
+            ent:BecomeActiveRagdoll(duration, {dmg:GetDamage(), dmg:GetDamagePosition(), dmg:GetDamageType()})
 
             if IsValid(ent.ActiveRagdoll) then
                 -- Burn the ragdoll instead of the NPC
@@ -424,9 +618,9 @@ if SERVER then
         -- Start active ragdoll
         if canActiveRagdoll( ent ) &&
         dmg:GetDamage() >= (ent:GetMaxHealth()*activeRagDMGPercent:GetFloat()) &&
-        (math.random(1, activeRagChance:GetInt()) == 1 or (activeRagExplosion:GetBool() && dmg:IsExplosionDamage())) &&
+        (math.random(1, activeRagChance:GetInt()) == 1 or (activeRagExplosion:GetBool() && dmg:IsExplosionDamage() or activeRagCrush:GetBool() && (dmg:IsDamageType(DMG_CRUSH) or dmg:IsDamageType(DMG_CLUB) or dmg:IsDamageType(DMG_VEHICLE)) )) &&
         vjAllyCheck( ent, attacker, infl ) then
-            ent:BecomeActiveRagdoll()
+            ent:BecomeActiveRagdoll(nil, {dmg:GetDamage(), dmg:GetDamagePosition(), dmg:GetDamageType()})
 
             if IsValid(ent.ActiveRagdoll) then
                 becameRagdoll = true
@@ -471,11 +665,11 @@ if SERVER then
                 if hitGr then
                     hook.Run("ScaleNPCDamage", ent.ActiveRagdollOwner, hitGr, dmg)
                 else
-                    -- Not vital shot, arm or leg for example
                     dmg:ScaleDamage(0.5)
                 end
             end
 
+            dmg:ScaleDamage(activeRagDMGRag:GetFloat())
             -- Send damage
             ent.ActiveRagdollOwner.ActiveRagdoll_DamageFromRagdoll = true
             ent.ActiveRagdollOwner:TakeDamageInfo(dmg)
@@ -519,7 +713,7 @@ if SERVER then
 
         end
 
-        nextThink = CurTime() + 0.1
+        nextThink = CurTime() + 0.01
 
     end)
     --------------------------------------------------------------------------------------------=#
@@ -589,11 +783,6 @@ if SERVER then
     end
     --------------------------------------------------------------------------------------------=#
     hook.Add("InitPostEntity", "ActiveRagdoll_InitPostEntity", function()
-
-        -- Automatic compatability with reagdoll
-        if REAGDOLL_INSTALLED then
-            RunConsoleCommand("reagdoll_ragdolls", "1")
-        end
 
         timer.Simple(0, function() timer.Simple(0, function() -- lmao, anp base compatability
 
