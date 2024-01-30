@@ -102,7 +102,7 @@ if SERVER then
             mask = MASK_PLAYERSOLID,
         })
     
-        return (pos - tr.HitPos):Length()
+        return (pos - tr.HitPos):Length(), tr.HitPos
     end
     ----------------------------------------------------------------------------------=#
     local function ActiveRagdollThink( self )
@@ -147,18 +147,31 @@ if SERVER then
                 end
             end
             if IsValid(en) then
+                local bonel = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_L_Hand")))
                 local boner1 = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_R_Hand")))
                 local boner2 = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_R_Forearm")))
                 local boneh = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_Head1")))
                 local bones = rag:GetPhysicsObjectNum(rag:TranslateBoneToPhysBone(rag:LookupBone("ValveBiped.Bip01_Spine4")))
-                local ang = (en:WorldSpaceCenter()-rag:GetPos()+Vector(0,0,8)):GetNormalized():Angle()
+                local enpos = en:WorldSpaceCenter()
+                local enbone = en:LookupBone("ValveBiped.Bip01_Spine") or -1
+                if IsValid(en.ActiveRagdoll) then
+                    enpos = en.ActiveRagdoll:GetPos()
+                    if enbone > 0 then
+                        enpos = en.ActiveRagdoll:GetBonePosition(enbone)
+                    end
+                else
+                    if enbone > 0 then
+                        enpos = en:GetBonePosition(enbone)
+                    end
+                end
+                local ang = (enpos-boner1:GetPos()+Vector(0,0,8)):GetNormalized():Angle()
                 if not del then
                     del = 0
                     RDReagdollMaster.Kill(rag, false)
                 end
 
-                local he = boneCheckHeight(rag, "ValveBiped.Bip01_Head1")
-                if he < 32 then
+                local he, hpos = boneCheckHeight(rag, "ValveBiped.Bip01_Head1")
+                if he < 40 then
                     local p = {}
                     p.secondstoarrive = 0.01
                     p.pos = boneh:GetPos() + ang:Forward()*64 + ang:Right()*4 + ang:Up()*8
@@ -176,9 +189,9 @@ if SERVER then
                     boner2:ComputeShadowControl(p)
                         
                     local p = {}
-                    p.secondstoarrive = 0.5
-                    p.pos = boneh:GetPos() + (ang:Up()*(16-he))
-                    p.angle = ang
+                    p.secondstoarrive = 0.1
+                    p.pos = hpos+ang:Up()*32
+                    p.angle = ang+Angle(-40,0,270)
                     p.maxangular = 400
                     p.maxangulardamp = 100
                     p.maxspeed = 200
@@ -189,8 +202,8 @@ if SERVER then
                     boneh:Wake()
                     boneh:ComputeShadowControl(p)
 
-                    p.secondstoarrive = 0.5
                     p.pos = bones:GetPos()
+                    p.secondstoarrive = 0.2
 
                     bones:Wake()
                     bones:ComputeShadowControl(p)
@@ -713,7 +726,7 @@ if SERVER then
 
         end
 
-        nextThink = CurTime() + 0.01
+        --nextThink = CurTime() + 0.01
 
     end)
     --------------------------------------------------------------------------------------------=#
